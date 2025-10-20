@@ -438,11 +438,60 @@ class AnalysisScreen(QWidget):
         self.main_layout.addWidget(self.foot_display_right, 0, 2)
 
         self.legend_left = QLabel(); self.legend_right = QLabel()
+        self.legend_left.setMinimumHeight(90); self.legend_right.setMinimumHeight(90)
         self.main_layout.addWidget(self.legend_left, 1, 1)
         self.main_layout.addWidget(self.legend_right, 1, 2)
 
         self.main_layout.setColumnStretch(0, 1); self.main_layout.setColumnStretch(1, 3); self.main_layout.setColumnStretch(2, 3)
         self.main_layout.setRowStretch(0, 10); self.main_layout.setRowStretch(1, 1)
+
+    # Correção: adicionada função update_kpa_bar() conforme versão funcional (ui/screens/base.py)
+    # Adaptação: valor de pressão obtido da matriz do frame atual (modo offline)
+    def update_kpa_bar(self, left_vals: Optional[Dict[str, float]], right_vals: Optional[Dict[str, float]]) -> Tuple[float, float]:
+        cont_w_left = self.contorno_esquerdo.width() or CANVAS_W
+        cont_h_left = self.contorno_esquerdo.height() or CANVAS_H
+        cont_w_right = self.contorno_direito.width() or CANVAS_W
+        cont_h_right = self.contorno_direito.height() or CANVAS_H
+
+        max_left = 0.0
+        if left_vals:
+            m_left = gerar_matriz_heatmap(left_vals, "left", cont_w_left, cont_h_left)
+            if m_left.size:
+                max_left = float(np.max(m_left)) * KPA_PER_UNIT
+
+        max_right = 0.0
+        if right_vals:
+            m_right = gerar_matriz_heatmap(right_vals, "right", cont_w_right, cont_h_right)
+            if m_right.size:
+                max_right = float(np.max(m_right)) * KPA_PER_UNIT
+
+        width_left = self.legend_left.width() or self.legend_left.minimumWidth() or 440
+        height_left = self.legend_left.height() or self.legend_left.minimumHeight() or 90
+        width_right = self.legend_right.width() or self.legend_right.minimumWidth() or 440
+        height_right = self.legend_right.height() or self.legend_right.minimumHeight() or 90
+
+        pm_left = _create_legend_pixmap(max(max_left, 0.1), width_left, height_left)
+        painter_left = QPainter(pm_left)
+        painter_left.setRenderHint(QPainter.Antialiasing)
+        font = QFont(); font.setPointSize(12); font.setBold(True)
+        painter_left.setFont(font)
+        painter_left.setPen(QColor(255, 255, 255))
+        painter_left.drawText(QRect(0, 0, width_left - 12, 28), Qt.AlignRight | Qt.AlignVCenter, f"{max_left:.1f} kPa")
+        painter_left.end()
+        self.legend_left.setPixmap(pm_left)
+        self.legend_left.setToolTip(f"Máx. pressão: {max_left:.1f} kPa")
+
+        pm_right = _create_legend_pixmap(max(max_right, 0.1), width_right, height_right)
+        painter_right = QPainter(pm_right)
+        painter_right.setRenderHint(QPainter.Antialiasing)
+        painter_right.setFont(font)
+        painter_right.setPen(QColor(255, 255, 255))
+        painter_right.drawText(QRect(0, 0, width_right - 12, 28), Qt.AlignRight | Qt.AlignVCenter, f"{max_right:.1f} kPa")
+        painter_right.end()
+        self.legend_right.setPixmap(pm_right)
+        self.legend_right.setToolTip(f"Máx. pressão: {max_right:.1f} kPa")
+
+        return max_left, max_right
 
     def _compute_border_from_mask(self, mask: np.ndarray) -> np.ndarray:
         """
@@ -798,15 +847,8 @@ class TelaMovimento(AnalysisScreen):
             "<b>Baricentro (CoP):</b><br>" + "<br>".join(cop_texts)
         )
 
-        maxL = 0.0; maxR = 0.0
-        if L:
-            mL = gerar_matriz_heatmap(L, "left", self.contorno_esquerdo.width() or CANVAS_W, self.contorno_esquerdo.height() or CANVAS_H)
-            maxL = float(mL.max()) * KPA_PER_UNIT if mL.size else 0.0
-        if R:
-            mR = gerar_matriz_heatmap(R, "right", self.contorno_direito.width() or CANVAS_W, self.contorno_direito.height() or CANVAS_H)
-            maxR = float(mR.max()) * KPA_PER_UNIT if mR.size else 0.0
-        self.legend_left.setPixmap(_create_legend_pixmap(maxL or 1.0, self.legend_left.width() or 440, 64))
-        self.legend_right.setPixmap(_create_legend_pixmap(maxR or 1.0, self.legend_right.width() or 440, 64))
+        # Correção: atualizar barra de kPa com valores atuais
+        self.update_kpa_bar(L if L else None, R if R else None)
 
         if L:
             dL = dists(L, "left")
@@ -885,6 +927,9 @@ class TelaMovimento(AnalysisScreen):
 
         nomeL, kpaL = peak_kpa(L) if L else ("--",0.0)
         nomeR, kpaR = peak_kpa(R) if R else ("--",0.0)
+
+        # Correção: atualizar barra de kPa durante reprodução com profiling
+        self.update_kpa_bar(L if L else None, R if R else None)
 
 
         self.peak_box.setText(f"<b>Pico de Pressão:</b><br>E: {nomeL} ({kpaL:.1f} kPa) <br> D: {nomeR} ({kpaR:.1f} kPa)")
